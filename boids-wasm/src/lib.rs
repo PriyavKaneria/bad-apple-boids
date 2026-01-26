@@ -15,18 +15,20 @@ struct GridCell {
     pixel_count: i32,
     flow_x: f32,
     flow_y: f32,
+    boid_count: i32,
 }
 
 const MAX_SPEED: f32 = 6.0;
 const MAX_FORCE: f32 = 0.4;
-const PERCEPTION: f32 = 0.0;     // Kept 0 per user previous setting, can assume they want pixel-like behavior
+const PERCEPTION: f32 = 30.0;     // Kept 0 per user previous setting, can assume they want pixel-like behavior
 const SEPARATION: f32 = 25.0;     // Increased slightly to prevent stacking
-const TARGET_FORCE: f32 = 2.0;   // Flow field is strong
+const TARGET_FORCE: f32 = 1.0;   // Flow field is strong
 
 // Grid Configuration
-const CELL_SIZE: f32 = 20.0;
-const COLS: usize = 40; // 800 / 20
-const ROWS: usize = 30; // 600 / 20
+const CELL_SIZE: f32 = 10.0;
+const COLS: usize = 80; // 800 / 20
+const ROWS: usize = 60; // 600 / 20
+const DENSITY_LIMIT: i32 = 5; // Max boids per cell before spilling over
 
 static mut BOIDS: Vec<Boid> = Vec::new();
 static mut PIXELS: Vec<f32> = Vec::new();
@@ -58,7 +60,7 @@ pub extern "C" fn init_boids(count: i32, w: f32, h: f32) {
         // Initialize Grid
         GRID.clear();
         GRID.resize(COLS * ROWS, GridCell {
-            has_pixels: false, center_x: 0.0, center_y: 0.0, pixel_count: 0, flow_x: 0.0, flow_y: 0.0
+            has_pixels: false, center_x: 0.0, center_y: 0.0, pixel_count: 0, flow_x: 0.0, flow_y: 0.0, boid_count: 0
         });
 
         for _ in 0..count {
@@ -107,6 +109,19 @@ pub extern "C" fn update_boids() {
     unsafe {
         let count = BOIDS.len();
 
+        // Pass 1: Count boids per cell
+        for cell in GRID.iter_mut() {
+            cell.boid_count = 0;
+        }
+        for b in BOIDS.iter() {
+            let col = (b.x / CELL_SIZE) as usize;
+            let row = (b.y / CELL_SIZE) as usize;
+            if col < COLS && row < ROWS {
+                GRID[row * COLS + col].boid_count += 1;
+            }
+        }
+
+        // Pass 2: Update physics
         for i in 0..count {
             let (ix, iy, ivx, ivy) = {
                 let b = &BOIDS[i];
@@ -145,11 +160,62 @@ pub extern "C" fn update_boids() {
                 
                 if cell.has_pixels {
                     // We are IN a white area. Target the specific center of mass of this cell.
-                    // This creates the sharp "pixel" look.
-                    let dx = cell.center_x - ix;
-                    let dy = cell.center_y - iy;
-                    tgt_x = dx;
-                    tgt_y = dy;
+                    // DENSITY CHECK: If too crowded, seek a neighbor
+                    if cell.boid_count > DENSITY_LIMIT {
+                        let mut found = false;
+                        let mut best_x = cell.center_x;
+                        let mut best_y = cell.center_y;
+
+                        for r in 1..=4 {
+                            for dy in -r..=r {
+                                for dx in -r..=r {
+                                    // Cast to i32 for safe abs() and arithmetic
+                                    let dx: i32 = dx;
+                                    let dy: i32 = dy;
+                                    let r: i32 = r;
+
+                                    // Only check the perimeter of the box (ring)
+                                    if dx.abs() != r && dy.abs() != r { continue; }
+
+                                    let nx = col + dx;
+                                    let ny = row + dy;
+
+                                    if nx >= 0 && nx < COLS as i32 && ny >= 0 && ny < ROWS as i32 {
+                                        let n_idx = (ny as usize) * COLS + (nx as usize);
+                                        let n_cell = &GRID[n_idx];
+                                        
+                                        // Found a white cell with space?
+                                        if n_cell.has_pixels && n_cell.boid_count < DENSITY_LIMIT {
+                                            best_x = n_cell.center_x;
+                                            best_y = n_cell.center_y;
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if found { break; }
+                            }
+                            if found { break; }
+                        }
+
+                        if found {
+                            let dx = best_x - ix;
+                            let dy = best_y - iy;
+                            tgt_x = dx;
+                            tgt_y = dy;
+                        } else {
+                            // No free space found nearby, stay put (or jitter)
+                            let dx = cell.center_x - ix;
+                            let dy = cell.center_y - iy;
+                            tgt_x = dx;
+                            tgt_y = dy;
+                        }
+                    } else {
+                         let dx = cell.center_x - ix;
+                         let dy = cell.center_y - iy;
+                         tgt_x = dx;
+                         tgt_y = dy;
+                    }
                 } else {
                     // We are in the dark. Follow the flow field.
                     tgt_x = cell.flow_x;
@@ -213,6 +279,7 @@ pub extern "C" fn assign_targets() {
             cell.pixel_count = 0;
             cell.flow_x = 0.0;
             cell.flow_y = 0.0;
+            // Don't reset boid_count here, update_boids does it per frame
         }
         
         // 2. Populate Grid with Pixels
