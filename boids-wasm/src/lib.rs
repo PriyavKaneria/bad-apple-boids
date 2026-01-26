@@ -5,6 +5,8 @@ pub struct Boid {
     x: f32, y: f32,
     vx: f32, vy: f32,
     ax: f32, ay: f32,
+    // Padding to match JS 32-byte stride (8 floats)
+    pad1: f32, pad2: f32, 
 }
 
 #[derive(Clone, Copy)]
@@ -20,19 +22,24 @@ struct GridCell {
 
 const MAX_SPEED: f32 = 6.0;
 const MAX_FORCE: f32 = 0.4;
-const PERCEPTION: f32 = 30.0;     // Kept 0 per user previous setting, can assume they want pixel-like behavior
-const SEPARATION: f32 = 25.0;     // Increased slightly to prevent stacking
-const TARGET_FORCE: f32 = 1.0;   // Flow field is strong
+const PERCEPTION: f32 = 20.0;     
+const SEPARATION: f32 = 10.0;
+const TARGET_FORCE: f32 = 1.0;   
 
 // Grid Configuration
-const CELL_SIZE: f32 = 10.0;
-const COLS: usize = 80; // 800 / 20
-const ROWS: usize = 60; // 600 / 20
-const DENSITY_LIMIT: i32 = 5; // Max boids per cell before spilling over
+const CELL_SIZE: f32 = 20.0;
+const COLS: usize = 40; // 800 / 20
+const ROWS: usize = 30; // 600 / 20
+const DENSITY_LIMIT: i32 = 5; 
 
 static mut BOIDS: Vec<Boid> = Vec::new();
 static mut PIXELS: Vec<f32> = Vec::new();
 static mut GRID: Vec<GridCell> = Vec::new();
+
+// Spatial Map for fast neighbors
+static mut GRID_HEADS: Vec<i32> = Vec::new(); 
+static mut BOID_NEXT: Vec<i32> = Vec::new();
+
 static mut WIDTH: f32 = 800.0;
 static mut HEIGHT: f32 = 600.0;
 static mut RNG_SEED: u32 = 12345;
@@ -57,6 +64,10 @@ pub extern "C" fn init_boids(count: i32, w: f32, h: f32) {
         BOIDS.clear();
         BOIDS.reserve(count as usize);
         
+        // Initialize Spatial Map Vectors
+        GRID_HEADS.resize(COLS * ROWS, -1);
+        BOID_NEXT.resize(count as usize, -1);
+        
         // Initialize Grid
         GRID.clear();
         GRID.resize(COLS * ROWS, GridCell {
@@ -71,6 +82,8 @@ pub extern "C" fn init_boids(count: i32, w: f32, h: f32) {
                 vy: rand_range(-2.0, 2.0),
                 ax: 0.0,
                 ay: 0.0,
+                pad1: 0.0,
+                pad2: 0.0,
             });
         }
     }
@@ -109,19 +122,30 @@ pub extern "C" fn update_boids() {
     unsafe {
         let count = BOIDS.len();
 
-        // Pass 1: Count boids per cell
-        for cell in GRID.iter_mut() {
-            cell.boid_count = 0;
-        }
-        for b in BOIDS.iter() {
+        // 1. Refresh Spatial Map (O(N))
+        for i in 0..GRID_HEADS.len() { GRID_HEADS[i] = -1; }
+        for i in 0..count { BOID_NEXT[i] = -1; }
+        
+        // Reset grid boid counts
+        for cell in GRID.iter_mut() { cell.boid_count = 0; }
+
+        for (i, b) in BOIDS.iter().enumerate() {
             let col = (b.x / CELL_SIZE) as usize;
             let row = (b.y / CELL_SIZE) as usize;
+            
             if col < COLS && row < ROWS {
-                GRID[row * COLS + col].boid_count += 1;
+                let idx = row * COLS + col;
+                
+                // Add to linked list
+                BOID_NEXT[i] = GRID_HEADS[idx];
+                GRID_HEADS[idx] = i as i32;
+
+                // Update density count
+                GRID[idx].boid_count += 1;
             }
         }
 
-        // Pass 2: Update physics
+        // 2. Main Loop
         for i in 0..count {
             let (ix, iy, ivx, ivy) = {
                 let b = &BOIDS[i];
@@ -129,30 +153,53 @@ pub extern "C" fn update_boids() {
             };
 
             let mut sep_x = 0.0; let mut sep_y = 0.0; let mut sep_c = 0;
-            // Removed Alignment/Cohesion loops for performance/style as requested (or implied by low Perception default)
-            // But we keep separation to strictly avoid stacking
 
-            // Simple Spatial Separation (check random subset or look nearby? N^2 is fine for 3500 in Wasm if optimized, 
-            // but let's assume standard behavior. With 5000 it might be slow.
-            // Let's do a simplified check or skip if perception is 0.0
-            if SEPARATION > 0.0 {
-                 // To optimize, we really should use the grid for neighbor lookup, 
-                 // but for now, let's just do a limited check or accept O(N^2) might lag with 5000.
-                 // Actually, let's optimize separation to only check random 50 neighbors or something?
-                 // or just skip it if perception is 0.
+            // Spatial Separation Logic
+            let col = (ix / CELL_SIZE) as i32;
+            let row = (iy / CELL_SIZE) as i32;
+
+            // Check 3x3 neighbor cells
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let nx = col + dx;
+                    let ny = row + dy;
+                    
+                    if nx >= 0 && nx < COLS as i32 && ny >= 0 && ny < ROWS as i32 {
+                        let idx = (ny as usize) * COLS + (nx as usize);
+                        let mut neighbor_idx = GRID_HEADS[idx];
+                        
+                        // Traverse list in this cell
+                        while neighbor_idx != -1 {
+                            let idx_u = neighbor_idx as usize;
+                            if idx_u != i {
+                                let b = &BOIDS[idx_u];
+                                let dist_sq = (ix - b.x).powi(2) + (iy - b.y).powi(2);
+                                
+                                if dist_sq < SEPARATION * SEPARATION && dist_sq > 0.001 {
+                                    let dist = dist_sq.sqrt();
+                                    let push_x = (ix - b.x) / dist; // Normalize
+                                    let push_y = (iy - b.y) / dist;
+                                    sep_x += push_x / dist; // Weight by distance (closer = stronger)
+                                    sep_y += push_y / dist;
+                                    sep_c += 1;
+                                }
+                            }
+                            neighbor_idx = BOID_NEXT[idx_u];
+                        }
+                    }
+                }
             }
-             
-             // Since user set perception to 0.0, we skip traditional flocking loops entirely 
-             // and focus on FLOW FIELD + SEPARATION (cheap version or just use flow).
-             // We'll add a simple "Personal Space" repulsion from Flow Field density? No, that's complex.
-             // We'll implement a VERY cheap separation: random jitter if too crowded?
-             // Or just ignore separation for max performance and "pixel" look.
+
+            // Apply Separation
+            if sep_c > 0 {
+                set_mag(&mut sep_x, &mut sep_y, MAX_SPEED);
+                sep_x -= ivx;
+                sep_y -= ivy;
+                limit(&mut sep_x, &mut sep_y, MAX_FORCE * 2.0); // Strong separation
+            }
 
             // Target Steering via Flow Field
             let mut tgt_x = 0.0; let mut tgt_y = 0.0;
-            
-            let col = (ix / CELL_SIZE) as i32;
-            let row = (iy / CELL_SIZE) as i32;
             
             if col >= 0 && col < COLS as i32 && row >= 0 && row < ROWS as i32 {
                 let cell_idx = (row * COLS as i32 + col) as usize;
@@ -166,6 +213,7 @@ pub extern "C" fn update_boids() {
                         let mut best_x = cell.center_x;
                         let mut best_y = cell.center_y;
 
+                        // Search expanding rings (radius 1 to 4)
                         for r in 1..=4 {
                             for dy in -r..=r {
                                 for dx in -r..=r {
@@ -204,9 +252,10 @@ pub extern "C" fn update_boids() {
                             tgt_x = dx;
                             tgt_y = dy;
                         } else {
-                            // No free space found nearby, stay put (or jitter)
-                            let dx = cell.center_x - ix;
-                            let dy = cell.center_y - iy;
+                            // No free space found nearby
+                            // Jitter to prevent stacking
+                            let dx = (cell.center_x + rand_range(-10.0, 10.0)) - ix;
+                            let dy = (cell.center_y + rand_range(-10.0, 10.0)) - iy;
                             tgt_x = dx;
                             tgt_y = dy;
                         }
@@ -243,6 +292,8 @@ pub extern "C" fn update_boids() {
 
             // Apply
             let b = &mut BOIDS[i];
+            b.ax += sep_x * 1.5;
+            b.ay += sep_y * 1.5;
             b.ax += tgt_x * TARGET_FORCE;
             b.ay += tgt_y * TARGET_FORCE;
         }
@@ -323,9 +374,7 @@ pub extern "C" fn assign_targets() {
         while let Some(current_idx) = occupied_queue.pop_front() {
             let cx = current_idx % COLS;
             let cy = current_idx / COLS;
-            let current_flow = (GRID[current_idx].flow_x, GRID[current_idx].flow_y); 
-            // Note: occupied cells have flow (0,0) implicitly towards themselves, 
-            // but we want neighbors to flow TOWARDS them.
+            let _current_flow = (GRID[current_idx].flow_x, GRID[current_idx].flow_y); 
             
             // Allow diagonals for smoother flow
             let neighbors = [
@@ -343,24 +392,8 @@ pub extern "C" fn assign_targets() {
                     if !visited[neighbor_idx] {
                         visited[neighbor_idx] = true;
                         
-                        // Valid neighbor found.
-                        // Its flow vector points TO current_idx.
-                        // Vector = Center of Current Cell - Center of Neighbor Cell
-                        // We can approximate using grid coords
-                        
-                        // Better: Point towards the source
-                        // If current cell is occupied, point to it.
-                        // If current cell is empty (flow transport), point along its flow?
-                        // Simplest BFS Gradient:
-                        // The 'parent' in BFS is where we came from.
-                        // So the neighbor should point towards 'current_idx'.
-                        
                         let mut fx = -(*dx as f32);
                         let mut fy = -(*dy as f32);
-                        
-                        // If we are chaining flows, we might want to add current_flow to it?
-                        // No, simple gradient descent is enough.
-                        // Just point to the neighbor that explored us.
                         
                         set_mag(&mut fx, &mut fy, 1.0);
                         

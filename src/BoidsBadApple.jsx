@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 
-const BOID_COUNT = 5000;
+const BOID_COUNT = 3000;
 const SAMPLE_RATE = 8;
 const WASM_PATH = '/boids.wasm';
 
@@ -52,12 +52,16 @@ const BoidsBadApple = () => {
     const imageData = ctx.getImageData(0, 0, width, height);
     const pixels = [];
 
-    for (let y = 0; y < height; y += SAMPLE_RATE) {
-      for (let x = 0; x < width; x += SAMPLE_RATE) {
+    // Margin to ignore edge artifacts/letterboxing
+    const MARGIN = 0;
+
+    for (let y = MARGIN; y < height - MARGIN; y += SAMPLE_RATE) {
+      for (let x = MARGIN; x < width - MARGIN; x += SAMPLE_RATE) {
         const i = (y * width + x) * 4;
         const brightness = (imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3;
 
-        if (brightness > 128) {
+        // Higher threshold to ignore compression noise
+        if (brightness > 110) {
           pixels.push(x, y);
         }
       }
@@ -84,10 +88,10 @@ const BoidsBadApple = () => {
       // Only process pixels if predictions are running
       if (wasmLoaded && wasmRef.current && !lookahead.paused) {
 
-        // Ensure lookahead stays ahead by ~0.6s
+        // Ensure lookahead stays ahead by ~0.3s
         const diff = lookahead.currentTime - video.currentTime;
-        if (Math.abs(diff - 0.6) > 0.2) {
-          lookahead.currentTime = video.currentTime + 0.6;
+        if (Math.abs(diff - 0.3) > 0.2) {
+          lookahead.currentTime = video.currentTime + 0.3;
         }
 
         const whitePixels = getWhitePixels(lookahead, canvas.width, canvas.height);
