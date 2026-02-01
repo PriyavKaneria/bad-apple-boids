@@ -340,15 +340,17 @@ pub extern "C" fn assign_targets() {
         ACTIVE_BOID_COUNT = ACTIVE_BOID_COUNT.clamp(MIN_BOIDS, MAX_BOIDS);
         
         // Dynamic Separation/Perception based on density
-        if pixel_total > 3500 {
-            // Majority White / Dense Scene -> Standard flocking
-            CURRENT_SEPARATION = 6.0;
-            CURRENT_PERCEPTION = 12.0;
-        } else {
-            // Majority Black / Sparse Scene -> Tighter packing
-            CURRENT_SEPARATION = 3.0;
-            CURRENT_PERCEPTION = 10.0;
-        }
+        // if pixel_total > 3500 {
+        //     // Majority White / Dense Scene -> Standard flocking
+        //     CURRENT_SEPARATION = 6.0;
+        //     CURRENT_PERCEPTION = 12.0;
+        // } else {
+        //     // Majority Black / Sparse Scene -> Tighter packing
+        //     CURRENT_SEPARATION = 3.0;
+        //     CURRENT_PERCEPTION = 10.0;
+        // }
+        CURRENT_SEPARATION = 3.0 + ratio * (6.0 - 3.0);
+        CURRENT_PERCEPTION = 10.0 + ratio * (12.0 - 10.0);
     
         // 1. Reset Grid
         for cell in GRID.iter_mut() {
