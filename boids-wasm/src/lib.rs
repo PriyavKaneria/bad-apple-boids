@@ -33,7 +33,7 @@ static mut CURRENT_SEPARATION: f32 = 10.0;
 const MIN_BOIDS: i32 = 500;
 const MAX_BOIDS: i32 = 5000;
 const MAX_PIXELS: f32 = 7500.0; // 800x600 @ sample rate 8
-static mut ACTIVE_BOID_COUNT: i32 = 3000;
+static mut ACTIVE_BOID_COUNT: i32 = 1500;
 
 // Grid Configuration
 const CELL_SIZE: f32 = 20.0;
@@ -473,3 +473,32 @@ pub extern "C" fn get_target_force() -> f32 {
     TARGET_FORCE
 }
 
+#[no_mangle]
+pub extern "C" fn get_grid_cols() -> i32 {
+    COLS as i32
+}
+
+#[no_mangle]
+pub extern "C" fn get_grid_rows() -> i32 {
+    ROWS as i32
+}
+
+#[no_mangle]
+pub extern "C" fn get_cell_size() -> f32 {
+    CELL_SIZE
+}
+
+// Static buffer for grid data to avoid allocation per frame
+static mut GRID_DATA: Vec<i32> = Vec::new();
+
+#[no_mangle]
+pub extern "C" fn get_grid_boid_counts() -> *const i32 {
+    unsafe {
+        GRID_DATA.clear();
+        GRID_DATA.reserve(COLS * ROWS);
+        for cell in GRID.iter() {
+            GRID_DATA.push(cell.boid_count);
+        }
+        GRID_DATA.as_ptr()
+    }
+}

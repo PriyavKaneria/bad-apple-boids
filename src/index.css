@@ -44,8 +44,36 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  gap: 40px;
+  gap: 10px;
   padding: 20px;
+}
+
+/* Algorithm panel */
+.algo-panel {
+  border: 2px solid #333;
+  padding: 20px;
+  min-width: 280px;
+  max-width: 300px;
+}
+
+.algo-title {
+  font-family: 'VT323', monospace;
+  font-size: 1.5rem;
+  letter-spacing: 2px;
+  color: #fff;
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.algo-code {
+  font-family: 'VT323', monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #0f0;
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 /* Content area */
@@ -63,6 +91,8 @@ body {
   color: #fff;
   margin: 0;
   text-align: center;
+  overflow: visible;
+  white-space: nowrap;
 }
 
 /* Subtitle */
@@ -197,6 +227,79 @@ body {
   letter-spacing: 1px;
   text-align: right;
   min-width: 60px;
+}
+
+/* Debug toggle */
+.debug-toggle {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.toggle-input {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #666;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.toggle-input:checked {
+  border-color: #0f0;
+  background: #0f0;
+}
+
+.toggle-input:checked::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #000;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.toggle-text {
+  font-family: 'VT323', monospace;
+  font-size: 1rem;
+  color: #666;
+  letter-spacing: 1px;
+}
+
+.toggle-input:checked+.toggle-text {
+  color: #0f0;
+}
+
+.debug-subtext-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease-out;
+}
+
+.debug-subtext-wrapper.open {
+  grid-template-rows: 1fr;
+}
+
+.debug-subtext {
+  font-family: 'VT323', monospace;
+  font-size: 0.8rem;
+  color: #0a0;
+  letter-spacing: 0.5px;
+  margin: 0;
+  padding-top: 8px;
+  opacity: 0.8;
+  overflow: hidden;
 }
 
 /* Hidden elements */

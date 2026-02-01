@@ -22,11 +22,19 @@ const BoidsBadApple = () => {
   const bgBoidsRef = useRef([]);
   const mouseRef = useRef({ x: 0, y: 0, isOverMain: false });
   const mainCanvasRectRef = useRef(null);
+  const debugModeRef = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [wasmLoaded, setWasmLoaded] = useState(false);
-  const [activeBoidCount, setActiveBoidCount] = useState(3000);
+  const [activeBoidCount, setActiveBoidCount] = useState(1500);
+  const [debugMode, setDebugMode] = useState(false);
+
+  // Keep debugModeRef in sync with state
+  useEffect(() => {
+    debugModeRef.current = debugMode;
+  }, [debugMode]);
+
   const [params, setParams] = useState({
     maxSpeed: 6.0,
     maxForce: 0.4,
@@ -304,6 +312,33 @@ const BoidsBadApple = () => {
           ctx.rect(x, y, 2, 2);
         }
         ctx.fill();
+
+        // Debug mode: Draw grid overlay
+        if (debugModeRef.current) {
+          const cols = wasmRef.current.get_grid_cols();
+          const rows = wasmRef.current.get_grid_rows();
+          const cellSize = wasmRef.current.get_cell_size();
+          const gridPtr = wasmRef.current.get_grid_boid_counts();
+          const gridData = new Int32Array(memoryRef.current.buffer, gridPtr, cols * rows);
+
+          for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+              const idx = row * cols + col;
+              const count = gridData[idx];
+
+              if (count > 0) {
+                // Opacity based on boid count (max 0.5)
+                const opacity = Math.min(count / 10, 0.4);
+                ctx.fillStyle = `rgba(119, 221, 119, ${opacity})`;
+                ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+              }
+
+              // Draw grid lines
+              ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+              ctx.strokeRect(col * cellSize, row * cellSize, cellSize, cellSize);
+            }
+          }
+        }
       }
 
       if (video && video.readyState >= 2) {
@@ -370,10 +405,35 @@ const BoidsBadApple = () => {
       />
 
       <div className="main-container">
-        {/* Left side - Main content */}
+        {/* Left side - Algorithm */}
+        <div className="algo-panel">
+          <h2 className="algo-title">ALGORITHM</h2>
+          <pre className="algo-code">
+            {`for each boid:
+  // Spatial separation
+  for neighbor in grid[cell]:
+    if dist < SEPARATION:
+      push away
+
+  // Target steering
+  if cell.has_pixels:
+    if cell.density > LIMIT:
+      find nearby free cell
+    steer to cell.center
+  else:
+    follow flow_field
+
+  // Apply forces
+  velocity += separation
+  velocity += target * FORCE
+  limit(velocity, MAX_SPEED)
+  position += velocity`}
+          </pre>
+        </div>
+
+        {/* Center - Main content */}
         <div className="content-area">
           <h1 className="retro-title">BAD APPLE!! But it's dynamic boids simulation</h1>
-          {/* <p className="subtitle">DYNAMIC BOIDS SIMULATION</p> */}
 
           <canvas
             ref={canvasRef}
@@ -429,6 +489,22 @@ const BoidsBadApple = () => {
             <div className="param-row">
               <span className="param-label">TARGET FORCE</span>
               <span className="param-value">{params.targetForce.toFixed(1)}</span>
+            </div>
+          </div>
+
+          {/* Debug toggle */}
+          <div className="debug-toggle">
+            <label className="toggle-label">
+              <input
+                type="checkbox"
+                checked={debugMode}
+                onChange={(e) => setDebugMode(e.target.checked)}
+                className="toggle-input"
+              />
+              <span className="toggle-text">DEBUG MODE</span>
+            </label>
+            <div className={`debug-subtext-wrapper ${debugMode ? 'open' : ''}`}>
+              <p className="debug-subtext">Shows grid density for <br /> boid regulation</p>
             </div>
           </div>
         </div>
