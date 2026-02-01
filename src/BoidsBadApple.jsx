@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 
-const BOID_COUNT = 3000;
+const BOID_POOL_SIZE = 6000;
 const SAMPLE_RATE = 8;
 const WASM_PATH = '/boids.wasm';
 
@@ -15,6 +15,7 @@ const BoidsBadApple = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [wasmLoaded, setWasmLoaded] = useState(false);
+  const [activeBoidCount, setActiveBoidCount] = useState(3000);
 
   useEffect(() => {
     async function loadWasm() {
@@ -29,7 +30,7 @@ const BoidsBadApple = () => {
         wasmRef.current = instance.exports;
         memoryRef.current = instance.exports.memory;
 
-        instance.exports.init_boids(BOID_COUNT, 800, 600);
+        instance.exports.init_boids(BOID_POOL_SIZE, 800, 600);
         setWasmLoaded(true);
         console.log("Wasm loaded and initialized");
       } catch (e) {
@@ -109,6 +110,10 @@ const BoidsBadApple = () => {
       if (wasmLoaded && wasmRef.current) {
         wasmRef.current.update_boids();
 
+        // Get dynamic boid count from Wasm
+        const currentActive = wasmRef.current.get_active_boid_count();
+        setActiveBoidCount(currentActive);
+
         // Draw boids
         const boidPtr = wasmRef.current.get_boids();
         const boidOffset = boidPtr / 4;
@@ -117,7 +122,9 @@ const BoidsBadApple = () => {
         ctx.beginPath();
         ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
 
-        for (let i = 0; i < BOID_COUNT; i++) {
+        // Only draw active boids (not the full pool)
+        const drawCount = Math.min(currentActive, BOID_POOL_SIZE);
+        for (let i = 0; i < drawCount; i++) {
           const x = memFloats[boidOffset + i * 8];
           const y = memFloats[boidOffset + i * 8 + 1];
           ctx.rect(x, y, 2, 2);
@@ -187,7 +194,7 @@ const BoidsBadApple = () => {
       <div className="mb-4">
         <h1 className="text-3xl font-bold text-white mb-2">Bad Apple × Boids (Wasm)</h1>
         <p className="text-gray-400 text-center">
-          {BOID_COUNT.toLocaleString()} boids flocking (Rust + WebAssembly)
+          {activeBoidCount.toLocaleString()} boids flocking (Rust + WebAssembly)
         </p>
       </div>
 

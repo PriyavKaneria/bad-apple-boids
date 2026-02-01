@@ -20,11 +20,20 @@ struct GridCell {
     boid_count: i32,
 }
 
+// Physics Constants
 const MAX_SPEED: f32 = 6.0;
 const MAX_FORCE: f32 = 0.4;
-const PERCEPTION: f32 = 20.0;     
-const SEPARATION: f32 = 10.0;
 const TARGET_FORCE: f32 = 1.0;   
+
+// Dynamic Physics State
+static mut CURRENT_PERCEPTION: f32 = 20.0;
+static mut CURRENT_SEPARATION: f32 = 10.0;
+
+// Dynamic Boid Count
+const MIN_BOIDS: i32 = 500;
+const MAX_BOIDS: i32 = 5000;
+const MAX_PIXELS: f32 = 7500.0; // 800x600 @ sample rate 8
+static mut ACTIVE_BOID_COUNT: i32 = 3000;
 
 // Grid Configuration
 const CELL_SIZE: f32 = 20.0;
@@ -175,7 +184,7 @@ pub extern "C" fn update_boids() {
                                 let b = &BOIDS[idx_u];
                                 let dist_sq = (ix - b.x).powi(2) + (iy - b.y).powi(2);
                                 
-                                if dist_sq < SEPARATION * SEPARATION && dist_sq > 0.001 {
+                                if dist_sq < CURRENT_SEPARATION * CURRENT_SEPARATION && dist_sq > 0.001 {
                                     let dist = dist_sq.sqrt();
                                     let push_x = (ix - b.x) / dist; // Normalize
                                     let push_y = (iy - b.y) / dist;
@@ -322,6 +331,25 @@ pub extern "C" fn update_boids() {
 #[no_mangle]
 pub extern "C" fn assign_targets() {
     unsafe {
+        // 0. Dynamic Parameter Adjustment
+        let pixel_total = PIXELS.len() / 2;
+        let ratio = (pixel_total as f32) / MAX_PIXELS;
+        
+        // Dynamic Boid Count: Scale linearly with pixel density
+        ACTIVE_BOID_COUNT = MIN_BOIDS + ((ratio * (MAX_BOIDS - MIN_BOIDS) as f32) as i32);
+        ACTIVE_BOID_COUNT = ACTIVE_BOID_COUNT.clamp(MIN_BOIDS, MAX_BOIDS);
+        
+        // Dynamic Separation/Perception based on density
+        if pixel_total > 3500 {
+            // Majority White / Dense Scene -> Standard flocking
+            CURRENT_SEPARATION = 6.0;
+            CURRENT_PERCEPTION = 12.0;
+        } else {
+            // Majority Black / Sparse Scene -> Tighter packing
+            CURRENT_SEPARATION = 3.0;
+            CURRENT_PERCEPTION = 10.0;
+        }
+    
         // 1. Reset Grid
         for cell in GRID.iter_mut() {
             cell.has_pixels = false;
@@ -411,4 +439,9 @@ pub extern "C" fn assign_targets() {
 #[no_mangle]
 pub extern "C" fn get_boids() -> *const Boid {
     unsafe { BOIDS.as_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn get_active_boid_count() -> i32 {
+    unsafe { ACTIVE_BOID_COUNT }
 }
