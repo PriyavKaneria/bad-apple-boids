@@ -447,3 +447,29 @@ pub extern "C" fn get_boids() -> *const Boid {
 pub extern "C" fn get_active_boid_count() -> i32 {
     unsafe { ACTIVE_BOID_COUNT }
 }
+
+#[no_mangle]
+pub extern "C" fn get_max_speed() -> f32 {
+    MAX_SPEED
+}
+
+#[no_mangle]
+pub extern "C" fn get_max_force() -> f32 {
+    MAX_FORCE
+}
+
+#[no_mangle]
+pub extern "C" fn get_perception() -> f32 {
+    unsafe { CURRENT_PERCEPTION }
+}
+
+#[no_mangle]
+pub extern "C" fn get_separation() -> f32 {
+    unsafe { CURRENT_SEPARATION }
+}
+
+#[no_mangle]
+pub extern "C" fn get_target_force() -> f32 {
+    TARGET_FORCE
+}
+
